@@ -161,12 +161,12 @@ class YoloNode(LifecycleNode):
 
     def on_deactivate(self, state: LifecycleState) -> TransitionCallbackReturn:
         self.get_logger().info(f"[{self.get_name()}] Deactivating...")
+        
+        # Stop receiving new messages first
+        self.destroy_subscription(self._sub)
+        self._sub = None
 
-        del self.yolo
-        if "cuda" in self.device:
-            self.get_logger().info("Clearing CUDA cache")
-            torch.cuda.empty_cache()
-
+        # Stop services
         self.destroy_service(self._enable_srv)
         self._enable_srv = None
 
@@ -174,8 +174,10 @@ class YoloNode(LifecycleNode):
             self.destroy_service(self._set_classes_srv)
             self._set_classes_srv = None
 
-        self.destroy_subscription(self._sub)
-        self._sub = None
+        # Clear GPU cache, but keep model for potential reactivation
+        if "cuda" in self.device:
+            self.get_logger().info("Clearing CUDA cache")
+            torch.cuda.empty_cache()
 
         super().on_deactivate(state)
         self.get_logger().info(f"[{self.get_name()}] Deactivated")
@@ -184,6 +186,13 @@ class YoloNode(LifecycleNode):
 
     def on_cleanup(self, state: LifecycleState) -> TransitionCallbackReturn:
         self.get_logger().info(f"[{self.get_name()}] Cleaning up...")
+
+        # Release heavyweight resources (YOLO model)
+        if hasattr(self, 'yolo'):
+            self.get_logger().info("Releasing YOLO model")
+            del self.yolo
+            if "cuda" in self.device:
+                torch.cuda.empty_cache()
 
         self.destroy_publisher(self._pub)
 
